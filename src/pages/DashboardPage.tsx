@@ -2,11 +2,16 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../utils/api';
 import { Slot, generateSlots, generateDateRange, formatTimeRange } from '../utils/slotGenerator';
+import BookingConfirmation from '../components/BookingConfirmation';
+import BookedSlot from '../components/BookedSlot';
 
 export default function DashboardPage() {
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [isConfirmationOpen, setIsConfirmationOpen] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
+  const [bookedSlot, setBookedSlot] = useState<Slot | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -48,18 +53,26 @@ export default function DashboardPage() {
     navigate('/');
   };
 
-  const handleBookSlot = async (slot: Slot) => {
+  const handleSlotClick = (slot: Slot) => {
+    setSelectedSlot(slot);
+    setIsConfirmationOpen(true);
+  };
+
+  const handleConfirmBooking = async () => {
+    if (!selectedSlot) return;
+
     try {
       setLoading(true);
-      const response = await api.bookSlot(slot.date, slot.time);
+      const response = await api.bookSlot(selectedSlot.date, selectedSlot.time);
       if (response.success) {
-        navigate('/confirmation', { 
-          state: { 
-            date: slot.date, 
-            time: slot.time,
-            venue: 'BEL 605'
-          }
-        });
+        // Update the slots list to mark this slot as booked
+        setSlots(slots.map(slot => 
+          slot.date === selectedSlot.date && slot.time === selectedSlot.time
+            ? { ...slot, bookedByUser: true, remaining: slot.remaining - 1 }
+            : slot
+        ));
+        setBookedSlot({ ...selectedSlot, venue: 'BEL 605' });
+        setIsConfirmationOpen(false);
       }
     } catch (err) {
       setError('Failed to book slot');
@@ -68,11 +81,45 @@ export default function DashboardPage() {
     }
   };
 
+  const handleCancelBooking = async () => {
+    if (!bookedSlot) return;
+
+    try {
+      setLoading(true);
+      const response = await api.cancelBooking(bookedSlot.date, bookedSlot.time);
+      if (response.success) {
+        // Update the slots list to mark this slot as available
+        setSlots(slots.map(slot => 
+          slot.date === bookedSlot.date && slot.time === bookedSlot.time
+            ? { ...slot, bookedByUser: false, remaining: slot.remaining + 1 }
+            : slot
+        ));
+        setBookedSlot(null);
+      }
+    } catch (err) {
+      setError('Failed to cancel booking');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleReschedule = async () => {
+    await handleCancelBooking();
+    // The user can now select a new slot
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-gray-900">Founders Club</h1>
+          <div className="flex items-center space-x-3">
+            <img
+              src="/src/assets/logo.jpg"
+              alt="Founders Club Logo"
+              className="h-8 w-auto"
+            />
+            <h1 className="text-2xl font-bold text-gray-900">Founders Club</h1>
+          </div>
           <button
             onClick={handleLogout}
             className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
@@ -84,6 +131,20 @@ export default function DashboardPage() {
 
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 sm:px-0">
+          {bookedSlot && (
+            <BookedSlot
+              slot={bookedSlot}
+              onCancel={handleCancelBooking}
+              onReschedule={handleReschedule}
+            />
+          )}
+
+          <BookingConfirmation
+            isOpen={isConfirmationOpen}
+            onClose={() => setIsConfirmationOpen(false)}
+            onConfirm={handleConfirmBooking}
+            slot={selectedSlot}
+          />
           <div className="bg-white shadow rounded-lg p-6 mb-6">
             <h2 className="text-lg font-medium text-gray-900 mb-4">Interview Details</h2>
             <div className="space-y-2 text-sm text-gray-600">
@@ -124,7 +185,7 @@ export default function DashboardPage() {
                       .map((slot) => (
                         <button
                           key={`${slot.date}-${slot.time}`}
-                          onClick={() => handleBookSlot(slot)}
+                          onClick={() => handleSlotClick(slot)}
                           disabled={slot.remaining === 0 || slot.bookedByUser}
                           className={`p-4 rounded-md text-left ${
                             slot.bookedByUser

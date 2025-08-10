@@ -5,6 +5,7 @@ export interface Slot {
   time: string;
   remaining: number;
   bookedByUser: boolean;
+  venue?: string;
 }
 
 export const generateSlots = (
